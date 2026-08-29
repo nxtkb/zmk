@@ -289,6 +289,8 @@ static ssize_t get_payload_data_size(const struct zmk_split_transport_peripheral
         return sizeof(evt->data.sensor_event);
     case ZMK_SPLIT_TRANSPORT_PERIPHERAL_EVENT_TYPE_BATTERY_EVENT:
         return sizeof(evt->data.battery_event);
+    case ZMK_SPLIT_TRANSPORT_PERIPHERAL_EVENT_TYPE_USB_POWER_EVENT:
+        return sizeof(evt->data.usb_power_event);
     default:
         return -ENOTSUP;
     }

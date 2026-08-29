@@ -56,6 +56,10 @@ struct peripheral_slot {
     struct bt_gatt_subscribe_params batt_lvl_subscribe_params;
     struct bt_gatt_read_params batt_lvl_read_params;
 #endif /* IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING) */
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    struct bt_gatt_subscribe_params usb_power_subscribe_params;
+    struct bt_gatt_read_params usb_power_read_params;
+#endif /* IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER) */
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
     uint16_t update_hid_indicators;
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
@@ -219,6 +223,9 @@ int release_peripheral_slot(int index) {
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
     slot->update_hid_indicators = 0;
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    slot->usb_power_subscribe_params.value_handle = 0;
+#endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
 
     return 0;
 }
@@ -390,6 +397,74 @@ static uint8_t split_central_notify_func(struct bt_conn *conn,
 
     return BT_GATT_ITER_CONTINUE;
 }
+
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+
+static void split_central_report_usb_power(struct bt_conn *conn, bool powered) {
+    int source = peripheral_slot_index_for_conn(conn);
+    if (source < 0) {
+        LOG_WRN("Ignoring USB power update for unknown peripheral (%d)", source);
+        return;
+    }
+
+    struct peripheral_event_wrapper ev = {
+        .source = source,
+        .event = {.type = ZMK_SPLIT_TRANSPORT_PERIPHERAL_EVENT_TYPE_USB_POWER_EVENT,
+                  .data = {.usb_power_event = {.powered = powered}}}};
+
+    int err = k_msgq_put(&peripheral_event_msgq, &ev, K_NO_WAIT);
+    if (err < 0) {
+        LOG_WRN("Failed to queue peripheral USB power update (%d)", err);
+        return;
+    }
+
+    k_work_submit(&peripheral_event_work);
+}
+
+static uint8_t split_central_usb_power_notify_func(struct bt_conn *conn,
+                                                   struct bt_gatt_subscribe_params *params,
+                                                   const void *data, uint16_t length) {
+    if (!data) {
+        LOG_DBG("[USB POWER UNSUBSCRIBED]");
+        params->value_handle = 0U;
+        return BT_GATT_ITER_STOP;
+    }
+
+    if (length != sizeof(uint8_t)) {
+        LOG_ERR("Unexpected USB power notification length: %u", length);
+        return BT_GATT_ITER_CONTINUE;
+    }
+
+    bool powered = ((const uint8_t *)data)[0] != 0;
+    LOG_DBG("Peripheral USB power notification: powered=%u", powered);
+    split_central_report_usb_power(conn, powered);
+    return BT_GATT_ITER_CONTINUE;
+}
+
+static uint8_t split_central_usb_power_read_func(struct bt_conn *conn, uint8_t err,
+                                                 struct bt_gatt_read_params *params,
+                                                 const void *data, uint16_t length) {
+    if (err > 0) {
+        LOG_ERR("Error reading peripheral USB power: %u", err);
+        return BT_GATT_ITER_STOP;
+    }
+
+    if (!data) {
+        return BT_GATT_ITER_STOP;
+    }
+
+    if (length != sizeof(uint8_t)) {
+        LOG_ERR("Unexpected USB power read length: %u", length);
+        return BT_GATT_ITER_CONTINUE;
+    }
+
+    bool powered = ((const uint8_t *)data)[0] != 0;
+    LOG_DBG("Peripheral USB power read: powered=%u", powered);
+    split_central_report_usb_power(conn, powered);
+    return BT_GATT_ITER_CONTINUE;
+}
+
+#endif /* IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER) */
 
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
 
@@ -620,6 +695,31 @@ static uint8_t split_central_chrc_discovery_func(struct bt_conn *conn,
             LOG_DBG("Found update HID indicators handle");
             slot->update_hid_indicators = bt_gatt_attr_value_handle(attr);
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+        } else if (!bt_uuid_cmp(chrc_uuid,
+                                BT_UUID_DECLARE_128(ZMK_SPLIT_BT_USB_POWER_UUID))) {
+            LOG_DBG("Found USB power characteristic");
+            slot->usb_power_subscribe_params.disc_params = &slot->sub_discover_params;
+            slot->usb_power_subscribe_params.end_handle = slot->discover_params.end_handle;
+            slot->usb_power_subscribe_params.value_handle = bt_gatt_attr_value_handle(attr);
+            slot->usb_power_subscribe_params.notify = split_central_usb_power_notify_func;
+            slot->usb_power_subscribe_params.value = BT_GATT_CCC_NOTIFY;
+            int subscribe_err =
+                split_central_subscribe(conn, &slot->usb_power_subscribe_params);
+            if (subscribe_err < 0 && subscribe_err != -EALREADY) {
+                LOG_WRN("Failed to subscribe to peripheral USB power updates (%d)",
+                        subscribe_err);
+            }
+
+            slot->usb_power_read_params.func = split_central_usb_power_read_func;
+            slot->usb_power_read_params.handle_count = 1;
+            slot->usb_power_read_params.single.handle = bt_gatt_attr_value_handle(attr);
+            slot->usb_power_read_params.single.offset = 0;
+            int read_err = bt_gatt_read(conn, &slot->usb_power_read_params);
+            if (read_err < 0) {
+                LOG_WRN("Failed to read initial peripheral USB power state (%d)", read_err);
+            }
+#endif /* IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER) */
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
         } else if (!bt_uuid_cmp(((struct bt_gatt_chrc *)attr->user_data)->uuid,
                                 BT_UUID_BAS_BATTERY_LEVEL)) {
@@ -698,6 +798,9 @@ static uint8_t split_central_chrc_discovery_func(struct bt_conn *conn,
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
     subscribed = subscribed && slot->batt_lvl_subscribe_params.value_handle;
 #endif /* IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING) */
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    subscribed = subscribed && slot->usb_power_subscribe_params.value_handle;
+#endif /* IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER) */
 #if IS_ENABLED(CONFIG_ZMK_INPUT_SPLIT)
     for (size_t i = 0; i < ARRAY_SIZE(peripheral_input_slots); i++) {
         if (input_slot_is_open(i) || input_slot_is_pending(i)) {
@@ -955,6 +1058,10 @@ static void split_central_disconnected(struct bt_conn *conn, uint8_t reason) {
     bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
     LOG_DBG("Disconnected: %s (reason %d)", addr, reason);
+
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    split_central_report_usb_power(conn, false);
+#endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
 
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
     struct peripheral_event_wrapper ev = {

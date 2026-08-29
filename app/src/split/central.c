@@ -16,6 +16,7 @@
 
 #include <zmk/event_manager.h>
 #include <zmk/events/battery_state_changed.h>
+#include <zmk/events/usb_conn_state_changed.h>
 #include <zmk/events/position_state_changed.h>
 #include <zmk/events/sensor_event.h>
 
@@ -61,6 +62,15 @@ int zmk_split_transport_central_peripheral_event_handler(
         };
         peripheral_battery_levels[source] = ev.data.battery_event.level;
         return raise_zmk_peripheral_battery_state_changed(battery_ev);
+    }
+#endif
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    case ZMK_SPLIT_TRANSPORT_PERIPHERAL_EVENT_TYPE_USB_POWER_EVENT: {
+        return raise_zmk_peripheral_usb_conn_state_changed(
+            (struct zmk_peripheral_usb_conn_state_changed){
+                .source = source,
+                .powered = ev.data.usb_power_event.powered,
+            });
     }
 #endif
     case ZMK_SPLIT_TRANSPORT_PERIPHERAL_EVENT_TYPE_SENSOR_EVENT: {

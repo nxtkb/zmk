@@ -28,6 +28,10 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #include "peripheral.h"
 
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+#include <zmk/usb.h>
+#endif
+
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
 #include <zmk/events/hid_indicators_changed.h>
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
@@ -178,6 +182,21 @@ ssize_t bt_gatt_attr_read_input_split_cpf(struct bt_conn *conn, const struct bt_
 
 #endif
 
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+static uint8_t usb_powered;
+
+static ssize_t split_svc_usb_power_read(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+                                        void *buf, uint16_t len, uint16_t offset) {
+    usb_powered = zmk_usb_is_powered();
+    return bt_gatt_attr_read(conn, attr, buf, len, offset, &usb_powered, sizeof(usb_powered));
+}
+
+static void split_svc_usb_power_ccc(const struct bt_gatt_attr *attr, uint16_t value) {
+    LOG_DBG("USB power notifications: %u", value);
+}
+
+#endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+
 BT_GATT_SERVICE_DEFINE(
     split_svc, BT_GATT_PRIMARY_SERVICE(BT_UUID_DECLARE_128(ZMK_SPLIT_BT_SERVICE_UUID)),
     BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(ZMK_SPLIT_BT_CHAR_POSITION_STATE_UUID),
@@ -195,6 +214,19 @@ BT_GATT_SERVICE_DEFINE(
                            split_svc_sensor_state, NULL, &last_sensor_event),
     BT_GATT_CCC(split_svc_sensor_state_ccc, BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT),
 #endif /* ZMK_KEYMAP_HAS_SENSORS */
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    /*
+     * Keep fixed characteristics before the dynamically generated input characteristics.
+     * The central temporarily switches from characteristic discovery to CCC/CPF descriptor
+     * discovery for every input characteristic. Putting fixed state characteristics first keeps
+     * their discovery independent of that resume path.
+     */
+    BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(ZMK_SPLIT_BT_USB_POWER_UUID),
+                           BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY, BT_GATT_PERM_READ_ENCRYPT,
+                           split_svc_usb_power_read, NULL, &usb_powered),
+    BT_GATT_CCC(split_svc_usb_power_ccc,
+                BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT),
+#endif
     DT_FOREACH_STATUS_OKAY(zmk_input_split, INPUT_SPLIT_CHARS)
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
         BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(ZMK_SPLIT_BT_UPDATE_HID_INDICATORS_UUID),
@@ -205,7 +237,8 @@ BT_GATT_SERVICE_DEFINE(
                            BT_GATT_CHRC_WRITE | BT_GATT_CHRC_READ,
                            BT_GATT_PERM_WRITE_ENCRYPT | BT_GATT_PERM_READ_ENCRYPT,
                            split_svc_get_selected_phys_layout, split_svc_select_phys_layout,
-                           NULL), );
+                           NULL),
+);
 
 K_THREAD_STACK_DEFINE(service_q_stack, CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_STACK_SIZE);
 
@@ -334,7 +367,29 @@ static int zmk_split_bt_report_input(uint8_t reg, uint8_t type, uint16_t code, i
 
 #endif /* IS_ENABLED(CONFIG_ZMK_INPUT_SPLIT) */
 
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+static int zmk_split_bt_report_usb_power(bool powered) {
+    usb_powered = powered ? 1 : 0;
+
+    for (size_t i = 0; i < split_svc.attr_count; i++) {
+        if (bt_uuid_cmp(split_svc.attrs[i].uuid,
+                        BT_UUID_DECLARE_128(ZMK_SPLIT_BT_USB_POWER_UUID)) == 0) {
+            int err = bt_gatt_notify(NULL, &split_svc.attrs[i], &usb_powered,
+                                     sizeof(usb_powered));
+            LOG_DBG("Split USB power notification: powered=%u err=%d", usb_powered, err);
+            return err == -ENOTCONN ? 0 : err;
+        }
+    }
+
+    return -ENODEV;
+}
+#endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+
 static int service_init(void) {
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    usb_powered = zmk_usb_is_powered();
+#endif
+
     static const struct k_work_queue_config queue_config = {
         .name = "Split Peripheral Notification Queue"};
     k_work_queue_start(&service_work_q, service_q_stack, K_THREAD_STACK_SIZEOF(service_q_stack),
@@ -374,6 +429,10 @@ int zmk_split_transport_peripheral_bt_report_event(
     case ZMK_SPLIT_TRANSPORT_PERIPHERAL_EVENT_TYPE_BATTERY_EVENT:
         // The BLE transport uses standard BAS service for propagation, so just return success here.
         return 0;
+#endif
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    case ZMK_SPLIT_TRANSPORT_PERIPHERAL_EVENT_TYPE_USB_POWER_EVENT:
+        return zmk_split_bt_report_usb_power(ev->data.usb_power_event.powered);
 #endif
     default:
         LOG_WRN("Unhandled event type %d", ev->type);

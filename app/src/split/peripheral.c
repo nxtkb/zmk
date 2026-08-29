@@ -17,6 +17,7 @@
 #include <zmk/events/position_state_changed.h>
 #include <zmk/events/sensor_event.h>
 #include <zmk/events/battery_state_changed.h>
+#include <zmk/events/usb_conn_state_changed.h>
 
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
 #include <zmk/events/hid_indicators_changed.h>
@@ -190,6 +191,19 @@ int split_peripheral_listener(const zmk_event_t *eh) {
     }
 #endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
 
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+    const struct zmk_usb_conn_state_changed *usb_ev;
+    if ((usb_ev = as_zmk_usb_conn_state_changed(eh)) != NULL) {
+        struct zmk_split_transport_peripheral_event ev = {
+            .type = ZMK_SPLIT_TRANSPORT_PERIPHERAL_EVENT_TYPE_USB_POWER_EVENT,
+            .data = {.usb_power_event = {
+                         .powered = usb_ev->conn_state != ZMK_USB_CONN_NONE,
+                     }}};
+
+        zmk_split_peripheral_report_event(&ev);
+    }
+#endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+
     return ZMK_EV_EVENT_BUBBLE;
 }
 
@@ -202,4 +216,8 @@ ZMK_SUBSCRIPTION(split_peripheral, zmk_sensor_event);
 
 #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
 ZMK_SUBSCRIPTION(split_peripheral, zmk_battery_state_changed);
+#endif
+
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
+ZMK_SUBSCRIPTION(split_peripheral, zmk_usb_conn_state_changed);
 #endif

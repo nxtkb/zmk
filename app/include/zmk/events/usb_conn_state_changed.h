@@ -17,3 +17,10 @@ struct zmk_usb_conn_state_changed {
 };
 
 ZMK_EVENT_DECLARE(zmk_usb_conn_state_changed);
+
+struct zmk_peripheral_usb_conn_state_changed {
+    uint8_t source;
+    bool powered;
+};
+
+ZMK_EVENT_DECLARE(zmk_peripheral_usb_conn_state_changed);
