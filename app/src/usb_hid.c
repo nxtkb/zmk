@@ -46,16 +46,15 @@ static void out_ready_cb(const struct device *dev) {
 #if IS_ENABLED(CONFIG_ZMK_HID_INDICATORS)
     struct zmk_hid_led_report_body *body;
 
-    if (bytes_read == sizeof(struct zmk_hid_led_report) &&
-        report[0] == ZMK_HID_REPORT_ID_LEDS) {
+    if (bytes_read == sizeof(struct zmk_hid_led_report) && report[0] == ZMK_HID_REPORT_ID_LEDS) {
         body = &((struct zmk_hid_led_report *)report)->body;
     } else if (bytes_read == sizeof(struct zmk_hid_led_report_body)) {
         /* Some hosts omit the report ID on a dedicated interrupt OUT
          * endpoint. Accept that representation as well. */
         body = (struct zmk_hid_led_report_body *)report;
     } else {
-        LOG_WRN("Ignoring malformed USB HID OUT report: length=%u id=%u",
-                (unsigned int)bytes_read, bytes_read > 0 ? report[0] : 0);
+        LOG_WRN("Ignoring malformed USB HID OUT report: length=%u id=%u", (unsigned int)bytes_read,
+                bytes_read > 0 ? report[0] : 0);
         return;
     }
 

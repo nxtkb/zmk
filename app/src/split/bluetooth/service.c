@@ -224,8 +224,7 @@ BT_GATT_SERVICE_DEFINE(
     BT_GATT_CHARACTERISTIC(BT_UUID_DECLARE_128(ZMK_SPLIT_BT_USB_POWER_UUID),
                            BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY, BT_GATT_PERM_READ_ENCRYPT,
                            split_svc_usb_power_read, NULL, &usb_powered),
-    BT_GATT_CCC(split_svc_usb_power_ccc,
-                BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT),
+    BT_GATT_CCC(split_svc_usb_power_ccc, BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT),
 #endif
     DT_FOREACH_STATUS_OKAY(zmk_input_split, INPUT_SPLIT_CHARS)
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
@@ -237,8 +236,7 @@ BT_GATT_SERVICE_DEFINE(
                            BT_GATT_CHRC_WRITE | BT_GATT_CHRC_READ,
                            BT_GATT_PERM_WRITE_ENCRYPT | BT_GATT_PERM_READ_ENCRYPT,
                            split_svc_get_selected_phys_layout, split_svc_select_phys_layout,
-                           NULL),
-);
+                           NULL), );
 
 K_THREAD_STACK_DEFINE(service_q_stack, CONFIG_ZMK_SPLIT_BLE_PERIPHERAL_STACK_SIZE);
 
@@ -374,8 +372,7 @@ static int zmk_split_bt_report_usb_power(bool powered) {
     for (size_t i = 0; i < split_svc.attr_count; i++) {
         if (bt_uuid_cmp(split_svc.attrs[i].uuid,
                         BT_UUID_DECLARE_128(ZMK_SPLIT_BT_USB_POWER_UUID)) == 0) {
-            int err = bt_gatt_notify(NULL, &split_svc.attrs[i], &usb_powered,
-                                     sizeof(usb_powered));
+            int err = bt_gatt_notify(NULL, &split_svc.attrs[i], &usb_powered, sizeof(usb_powered));
             LOG_DBG("Split USB power notification: powered=%u err=%d", usb_powered, err);
             return err == -ENOTCONN ? 0 : err;
         }

@@ -696,19 +696,16 @@ static uint8_t split_central_chrc_discovery_func(struct bt_conn *conn,
             slot->update_hid_indicators = bt_gatt_attr_value_handle(attr);
 #endif // IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_HID_INDICATORS)
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_PERIPHERAL_USB_POWER)
-        } else if (!bt_uuid_cmp(chrc_uuid,
-                                BT_UUID_DECLARE_128(ZMK_SPLIT_BT_USB_POWER_UUID))) {
+        } else if (!bt_uuid_cmp(chrc_uuid, BT_UUID_DECLARE_128(ZMK_SPLIT_BT_USB_POWER_UUID))) {
             LOG_DBG("Found USB power characteristic");
             slot->usb_power_subscribe_params.disc_params = &slot->sub_discover_params;
             slot->usb_power_subscribe_params.end_handle = slot->discover_params.end_handle;
             slot->usb_power_subscribe_params.value_handle = bt_gatt_attr_value_handle(attr);
             slot->usb_power_subscribe_params.notify = split_central_usb_power_notify_func;
             slot->usb_power_subscribe_params.value = BT_GATT_CCC_NOTIFY;
-            int subscribe_err =
-                split_central_subscribe(conn, &slot->usb_power_subscribe_params);
+            int subscribe_err = split_central_subscribe(conn, &slot->usb_power_subscribe_params);
             if (subscribe_err < 0 && subscribe_err != -EALREADY) {
-                LOG_WRN("Failed to subscribe to peripheral USB power updates (%d)",
-                        subscribe_err);
+                LOG_WRN("Failed to subscribe to peripheral USB power updates (%d)", subscribe_err);
             }
 
             slot->usb_power_read_params.func = split_central_usb_power_read_func;
